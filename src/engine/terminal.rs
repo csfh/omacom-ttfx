@@ -723,7 +723,7 @@ impl Terminal {
     pub fn pack_display_frame(&mut self) -> PackedFrame {
         let (width, height) = self.update_render_cells();
         let cells = width.saturating_mul(height);
-        let mut symbols = String::with_capacity(cells);
+        let mut symbols = Vec::with_capacity(cells);
         let mut fg = Vec::with_capacity(cells);
         let mut bg = Vec::with_capacity(cells);
         let mut flags = Vec::with_capacity(cells);
@@ -731,7 +731,7 @@ impl Terminal {
         for row_index in (0..height).rev() {
             for &cell in &self.render_cells[row_index * width..(row_index + 1) * width] {
                 if cell == EMPTY_RENDER_CELL {
-                    symbols.push(' ');
+                    symbols.push(b' ' as u32);
                     fg.push(0);
                     bg.push(0);
                     flags.push(0);
@@ -739,7 +739,7 @@ impl Terminal {
                 }
                 let visual = &arena[cell as usize].animation.current_character_visual;
                 let ch = visual.symbol.chars().next().unwrap_or(' ');
-                symbols.push(if visual.hidden { ' ' } else { ch });
+                symbols.push(if visual.hidden { b' ' as u32 } else { ch as u32 });
                 let mut cell_fg = visual
                     .fg_color_code
                     .as_ref()
@@ -802,7 +802,7 @@ impl Terminal {
 pub struct PackedFrame {
     pub width: usize,
     pub height: usize,
-    pub symbols: String,
+    pub symbols: Vec<u32>,
     pub fg: Vec<u32>,
     pub bg: Vec<u32>,
     pub flags: Vec<u8>,
@@ -816,6 +816,33 @@ impl PackedFrame {
     pub const BLINK: u8 = 16;
     pub const HIDDEN: u8 = 32;
     pub const STRIKE: u8 = 64;
+
+    pub fn cell_count(&self) -> usize {
+        self.width.saturating_mul(self.height)
+    }
+
+    /// Copy this frame into caller-owned buffers. Extra capacity is left untouched.
+    pub fn fill(
+        &self,
+        symbols: &mut [u32],
+        fg: &mut [u32],
+        bg: &mut [u32],
+        flags: &mut [u8],
+    ) -> Result<usize, &'static str> {
+        let n = self.cell_count();
+        if self.symbols.len() != n || self.fg.len() != n || self.bg.len() != n || self.flags.len() != n
+        {
+            return Err("packed frame is truncated");
+        }
+        if symbols.len() < n || fg.len() < n || bg.len() < n || flags.len() < n {
+            return Err("frame buffers are too small");
+        }
+        symbols[..n].copy_from_slice(&self.symbols);
+        fg[..n].copy_from_slice(&self.fg);
+        bg[..n].copy_from_slice(&self.bg);
+        flags[..n].copy_from_slice(&self.flags);
+        Ok(n)
+    }
 }
 
 /// shutil.get_terminal_size semantics: COLUMNS/LINES env vars win; else query

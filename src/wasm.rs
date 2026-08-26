@@ -1,6 +1,7 @@
 //! Browser bindings: run any effect against a packed cell frame.
 
 use clap::{CommandFactory, Parser};
+use js_sys::{Uint8Array, Uint32Array};
 use wasm_bindgen::prelude::*;
 
 use crate::cli::Cli;
@@ -63,7 +64,7 @@ impl Session {
             frame: PackedFrame {
                 width: 0,
                 height: 0,
-                symbols: String::new(),
+                symbols: Vec::new(),
                 fg: Vec::new(),
                 bg: Vec::new(),
                 flags: Vec::new(),
@@ -102,20 +103,41 @@ impl Session {
         self.frame.height as u32
     }
 
-    pub fn symbols(&self) -> String {
-        self.frame.symbols.clone()
-    }
-
-    pub fn fg(&self) -> Vec<u32> {
-        self.frame.fg.clone()
-    }
-
-    pub fn bg(&self) -> Vec<u32> {
-        self.frame.bg.clone()
-    }
-
-    pub fn flags(&self) -> Vec<u8> {
-        self.frame.flags.clone()
+    /// Copy the current frame into caller-owned typed arrays.
+    ///
+    /// Each array must be at least `width * height` long. Extra length is left
+    /// untouched. Symbols are Unicode scalar values, one per cell.
+    pub fn fill(
+        &self,
+        symbols: &Uint32Array,
+        fg: &Uint32Array,
+        bg: &Uint32Array,
+        flags: &Uint8Array,
+    ) -> Result<(), JsError> {
+        let n = self.frame.cell_count();
+        if (symbols.length() as usize) < n
+            || (fg.length() as usize) < n
+            || (bg.length() as usize) < n
+            || (flags.length() as usize) < n
+        {
+            return Err(JsError::new("frame buffers are too small"));
+        }
+        if n == 0 {
+            return Ok(());
+        }
+        if self.frame.symbols.len() != n
+            || self.frame.fg.len() != n
+            || self.frame.bg.len() != n
+            || self.frame.flags.len() != n
+        {
+            return Err(JsError::new("packed frame is truncated"));
+        }
+        let end = n as u32;
+        symbols.subarray(0, end).copy_from(&self.frame.symbols);
+        fg.subarray(0, end).copy_from(&self.frame.fg);
+        bg.subarray(0, end).copy_from(&self.frame.bg);
+        flags.subarray(0, end).copy_from(&self.frame.flags);
+        Ok(())
     }
 }
 
