@@ -181,6 +181,7 @@ impl Cli {
             reuse_canvas: self.reuse_canvas,
             no_eol: self.no_eol,
             no_restore_cursor: self.no_restore_cursor,
+            terminal_size: None,
         }
     }
 }

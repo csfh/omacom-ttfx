@@ -33,6 +33,31 @@ pub enum ColorCode {
     Xterm(u8),
 }
 
+impl ColorCode {
+    /// Packed 0xAARRGGBB with opaque alpha.
+    pub fn rgb_u32(&self) -> u32 {
+        let (r, g, b) = match self {
+            ColorCode::Rgb(hex) => {
+                let s = hex.trim_matches('#');
+                (
+                    u8::from_str_radix(&s[0..2], 16).unwrap_or(0),
+                    u8::from_str_radix(&s[2..4], 16).unwrap_or(0),
+                    u8::from_str_radix(&s[4..6], 16).unwrap_or(0),
+                )
+            }
+            ColorCode::Xterm(n) => {
+                let s = crate::utils::hexterm::xterm_to_hex(*n);
+                (
+                    u8::from_str_radix(&s[0..2], 16).unwrap_or(0),
+                    u8::from_str_radix(&s[2..4], 16).unwrap_or(0),
+                    u8::from_str_radix(&s[4..6], 16).unwrap_or(0),
+                )
+            }
+        };
+        0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+    }
+}
+
 /// Decimal digits of a byte, without going through core::fmt. Every restyled
 /// character reassembles its SGR sequence, so the formatting machinery shows up
 /// in profiles.

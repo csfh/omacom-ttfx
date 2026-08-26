@@ -27,12 +27,19 @@ impl Rng {
 
     pub fn from_entropy() -> Self {
         let mut buf = [0u8; 8];
-        // /dev/urandom is always present on the Unix targets we support
-        // (Linux and macOS).
-        use std::io::Read;
-        std::fs::File::open("/dev/urandom")
-            .and_then(|mut f| f.read_exact(&mut buf))
-            .expect("failed to read /dev/urandom");
+        #[cfg(target_arch = "wasm32")]
+        {
+            getrandom::getrandom(&mut buf).expect("failed to read entropy");
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // /dev/urandom is always present on the Unix targets we support
+            // (Linux and macOS).
+            use std::io::Read;
+            std::fs::File::open("/dev/urandom")
+                .and_then(|mut f| f.read_exact(&mut buf))
+                .expect("failed to read /dev/urandom");
+        }
         Rng::seeded(u64::from_le_bytes(buf))
     }
 

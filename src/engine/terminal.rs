@@ -36,6 +36,8 @@ pub struct TerminalConfig {
     pub reuse_canvas: bool,
     pub no_eol: bool,
     pub no_restore_cursor: bool,
+    /// When set, skip tty/`COLUMNS`/`LINES` probing and use this size.
+    pub terminal_size: Option<(i64, i64)>,
 }
 
 impl Default for TerminalConfig {
@@ -56,6 +58,7 @@ impl Default for TerminalConfig {
             reuse_canvas: false,
             no_eol: false,
             no_restore_cursor: false,
+            terminal_size: None,
         }
     }
 }
@@ -140,7 +143,8 @@ pub struct Terminal {
     output_buffer: String,
     move_cursor_to_top: String,
     frame_rate: i64,
-    last_time_printed: Instant,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    last_time_printed: Option<Instant>,
 }
 
 fn ordered_buckets(
@@ -186,7 +190,7 @@ impl Terminal {
         .preprocess(input_data)?;
 
         let input_line_lengths: Vec<i64> = preprocessed_lines.iter().map(|l| l.len() as i64).collect();
-        let terminal_dimensions = get_terminal_dimensions();
+        let terminal_dimensions = get_terminal_dimensions(&config);
         let layout = compute_layout(&config, &input_line_lengths, terminal_dimensions.0, terminal_dimensions.1);
         let mut canvas = Canvas::new(layout.canvas_height, layout.canvas_width);
         let Layout {
@@ -248,7 +252,16 @@ impl Terminal {
             output_buffer: String::new(),
             move_cursor_to_top,
             frame_rate,
-            last_time_printed: Instant::now(),
+            last_time_printed: {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    None
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    Some(Instant::now())
+                }
+            },
         };
         terminal.make_fill_characters();
         terminal.setup_character_neighbors();
@@ -632,7 +645,7 @@ impl Terminal {
         if self.config.ignore_terminal_dimensions {
             return false;
         }
-        let (width, height) = get_terminal_dimensions();
+        let (width, height) = get_terminal_dimensions(&self.config);
         if (width, height) == self.terminal_dimensions {
             return false;
         }
@@ -692,32 +705,141 @@ impl Terminal {
         if self.frame_rate == 0 {
             return;
         }
-        let frame_delay = 1.0 / self.frame_rate as f64;
-        let elapsed = self.last_time_printed.elapsed().as_secs_f64();
-        if elapsed < frame_delay {
-            std::thread::sleep(std::time::Duration::from_secs_f64(frame_delay - elapsed));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let frame_delay = 1.0 / self.frame_rate as f64;
+            let elapsed = self
+                .last_time_printed
+                .map(|t| t.elapsed().as_secs_f64())
+                .unwrap_or(0.0);
+            if elapsed < frame_delay {
+                std::thread::sleep(std::time::Duration::from_secs_f64(frame_delay - elapsed));
+            }
+            self.last_time_printed = Some(Instant::now());
         }
-        self.last_time_printed = Instant::now();
+    }
+
+    /// Display-order cell buffer (top-left first) for non-ANSI frontends.
+    pub fn pack_display_frame(&mut self) -> PackedFrame {
+        let (width, height) = self.update_render_cells();
+        let cells = width.saturating_mul(height);
+        let mut symbols = String::with_capacity(cells);
+        let mut fg = Vec::with_capacity(cells);
+        let mut bg = Vec::with_capacity(cells);
+        let mut flags = Vec::with_capacity(cells);
+        let arena = &self.arena;
+        for row_index in (0..height).rev() {
+            for &cell in &self.render_cells[row_index * width..(row_index + 1) * width] {
+                if cell == EMPTY_RENDER_CELL {
+                    symbols.push(' ');
+                    fg.push(0);
+                    bg.push(0);
+                    flags.push(0);
+                    continue;
+                }
+                let visual = &arena[cell as usize].animation.current_character_visual;
+                let ch = visual.symbol.chars().next().unwrap_or(' ');
+                symbols.push(if visual.hidden { ' ' } else { ch });
+                let mut cell_fg = visual
+                    .fg_color_code
+                    .as_ref()
+                    .map(crate::utils::ansi::ColorCode::rgb_u32)
+                    .unwrap_or(0);
+                let mut cell_bg = visual
+                    .bg_color_code
+                    .as_ref()
+                    .map(crate::utils::ansi::ColorCode::rgb_u32)
+                    .unwrap_or(0);
+                if visual.reverse {
+                    if cell_fg == 0 {
+                        cell_fg = 0xFFC0C0C0;
+                    }
+                    if cell_bg == 0 {
+                        cell_bg = 0xFF000000;
+                    }
+                    std::mem::swap(&mut cell_fg, &mut cell_bg);
+                }
+                let mut cell_flags = 0u8;
+                if visual.bold {
+                    cell_flags |= PackedFrame::BOLD;
+                }
+                if visual.italic {
+                    cell_flags |= PackedFrame::ITALIC;
+                }
+                if visual.underline {
+                    cell_flags |= PackedFrame::UNDERLINE;
+                }
+                if visual.reverse {
+                    cell_flags |= PackedFrame::REVERSE;
+                }
+                if visual.blink {
+                    cell_flags |= PackedFrame::BLINK;
+                }
+                if visual.hidden {
+                    cell_flags |= PackedFrame::HIDDEN;
+                }
+                if visual.strike {
+                    cell_flags |= PackedFrame::STRIKE;
+                }
+                fg.push(cell_fg);
+                bg.push(cell_bg);
+                flags.push(cell_flags);
+            }
+        }
+        PackedFrame {
+            width,
+            height,
+            symbols,
+            fg,
+            bg,
+            flags,
+        }
     }
 }
 
+/// One rendered frame as parallel arrays, display-order, one Unicode scalar per cell.
+#[derive(Debug, Clone)]
+pub struct PackedFrame {
+    pub width: usize,
+    pub height: usize,
+    pub symbols: String,
+    pub fg: Vec<u32>,
+    pub bg: Vec<u32>,
+    pub flags: Vec<u8>,
+}
+
+impl PackedFrame {
+    pub const BOLD: u8 = 1;
+    pub const ITALIC: u8 = 2;
+    pub const UNDERLINE: u8 = 4;
+    pub const REVERSE: u8 = 8;
+    pub const BLINK: u8 = 16;
+    pub const HIDDEN: u8 = 32;
+    pub const STRIKE: u8 = 64;
+}
+
 /// shutil.get_terminal_size semantics: COLUMNS/LINES env vars win; else query
-/// the tty; on failure (80, 24).
-fn get_terminal_dimensions() -> (i64, i64) {
-    let env_dim = |name: &str| -> Option<i64> {
-        std::env::var(name).ok()?.parse::<i64>().ok()
-    };
+/// the tty; on failure (80, 24). `TerminalConfig::terminal_size` wins over all.
+fn get_terminal_dimensions(config: &TerminalConfig) -> (i64, i64) {
+    if let Some(size) = config.terminal_size {
+        return size;
+    }
+    let env_dim = |name: &str| -> Option<i64> { std::env::var(name).ok()?.parse::<i64>().ok() };
     let columns = env_dim("COLUMNS");
     let lines = env_dim("LINES");
     if let (Some(c), Some(l)) = (columns, lines) {
         return (c, l);
     }
-    match terminal_size::terminal_size() {
-        Some((terminal_size::Width(w), terminal_size::Height(h))) => {
-            (columns.unwrap_or(w as i64), lines.unwrap_or(h as i64))
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        match terminal_size::terminal_size() {
+            Some((terminal_size::Width(w), terminal_size::Height(h))) => {
+                return (columns.unwrap_or(w as i64), lines.unwrap_or(h as i64));
+            }
+            None => {}
         }
-        None => (columns.unwrap_or(80), lines.unwrap_or(24)),
     }
+    (columns.unwrap_or(80), lines.unwrap_or(24))
 }
 
 /// Everything about the drawing area that is derived from the terminal size.
