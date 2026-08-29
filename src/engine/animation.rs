@@ -5,7 +5,9 @@
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use crate::utils::ansi::{self, ColorCode};
+use crate::utils::ansi::ColorCode;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::utils::ansi;
 use crate::utils::easing::Easing;
 use crate::utils::graphics::{Color, ColorPair, Gradient};
 use crate::utils::hexterm;
@@ -25,6 +27,7 @@ pub enum SyncMetric {
     Step,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 thread_local! {
     /// Reused assembly buffer for CharacterVisual::new's SGR string.
     static FORMAT_SCRATCH: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
@@ -32,6 +35,7 @@ thread_local! {
 
 /// Inline capacity for a formatted symbol. A 24-bit foreground and background
 /// pair plus a reset is 42 bytes, so all but pathological styling fits.
+#[cfg(not(target_arch = "wasm32"))]
 const INLINE_SYMBOL_CAPACITY: usize = 63;
 
 /// The precomputed ANSI string for one cell, stored inline when it fits.
@@ -40,12 +44,16 @@ const INLINE_SYMBOL_CAPACITY: usize = 63;
 /// over a run — and a `str` copy of a couple of dozen bytes is dominated by the
 /// memcpy call itself. An inline buffer of fixed size lets the writer copy the
 /// whole block unconditionally and then advance by the real length.
+///
+/// Wasm packed frames read symbol/color fields directly, so this stays native.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone)]
 pub enum FormattedSymbol {
     Inline { bytes: [u8; INLINE_SYMBOL_CAPACITY], len: u8 },
     Heap(Box<str>),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl FormattedSymbol {
     fn new(text: &str) -> Self {
         if text.len() <= INLINE_SYMBOL_CAPACITY {
@@ -93,6 +101,7 @@ impl FormattedSymbol {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl PartialEq for FormattedSymbol {
     fn eq(&self, other: &Self) -> bool {
         self.as_str() == other.as_str()
@@ -114,6 +123,7 @@ pub struct CharacterVisual {
     pub colors: Option<ColorPair>,
     pub fg_color_code: Option<ColorCode>,
     pub bg_color_code: Option<ColorCode>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub formatted_symbol: FormattedSymbol,
 }
 
@@ -134,6 +144,7 @@ pub struct VisualParams {
 
 impl CharacterVisual {
     pub fn new(symbol: &str, p: VisualParams) -> Self {
+        #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
         let mut vis = CharacterVisual {
             symbol: symbol.to_string(),
             bold: p.bold,
@@ -147,10 +158,13 @@ impl CharacterVisual {
             colors: p.colors,
             fg_color_code: p.fg_color_code,
             bg_color_code: p.bg_color_code,
+            #[cfg(not(target_arch = "wasm32"))]
             formatted_symbol: FormattedSymbol::Inline { bytes: [0; INLINE_SYMBOL_CAPACITY], len: 0 },
         };
         // Effects rebuild visuals every frame, so the SGR string is assembled in
         // a reused scratch buffer rather than a fresh allocation per visual.
+        // Wasm packed frames never read it.
+        #[cfg(not(target_arch = "wasm32"))]
         FORMAT_SCRATCH.with(|scratch| {
             let mut scratch = scratch.borrow_mut();
             scratch.clear();
@@ -166,6 +180,7 @@ impl CharacterVisual {
 
     /// SGR emission in upstream's fixed order; `dim` intentionally omitted;
     /// bare symbol when nothing applies.
+    #[cfg(not(target_arch = "wasm32"))]
     fn format_symbol_into(&self, fmt: &mut String) {
         if self.bold {
             fmt.push_str(ansi::BOLD);

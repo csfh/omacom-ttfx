@@ -699,6 +699,7 @@ impl EngineCtx {
     /// `pack_display_frame`, which paints once. Building the string here would
     /// allocate and paint a second time for output JS never reads.
     pub fn frame(&mut self) -> String {
+        #[cfg(not(target_arch = "wasm32"))]
         if matches!(self.clock, Clock::Real { .. }) && self.terminal.config.frame_rate != 0 {
             self.terminal.enforce_framerate();
         }

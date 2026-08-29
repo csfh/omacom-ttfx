@@ -77,8 +77,7 @@ impl Session {
             return false;
         }
         match self.effect.next_frame(&mut self.ctx) {
-            Some(output) => {
-                self.ctx.terminal.recycle_output_string(output);
+            Some(_output) => {
                 self.frame = self.ctx.terminal.pack_display_frame();
                 true
             }
