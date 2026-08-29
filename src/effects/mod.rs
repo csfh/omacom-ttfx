@@ -2,7 +2,9 @@
 //!
 //! One Cargo feature per effect. `all-effects` (the default) enables every
 //! row in `define_effects!`. A single-effect binary or wasm is
-//! `--no-default-features --features decrypt`.
+//! `--no-default-features --features decrypt`. Wasm builds effects from
+//! `Default` configs (`build_named_effect`) so clap stays out of that
+//! artifact.
 //!
 //! Adding an effect: a row here, an empty feature in Cargo.toml, and the name
 //! in the `all-effects` list. Keep those lists alphabetical by effect name.
@@ -58,6 +60,35 @@ macro_rules! define_effects {
                         EffectCommand::$variant(_) => $name,
                     )*
                 }
+            }
+
+            pub fn with_defaults(name: &str) -> Option<Self> {
+                match name {
+                    $(
+                        #[cfg(feature = $name)]
+                        $name => Some(EffectCommand::$variant($mod::$config::default())),
+                    )*
+                    _ => None,
+                }
+            }
+        }
+
+        pub fn catalog_entries() -> &'static [(&'static str, &'static str)] {
+            &[
+                $(
+                    #[cfg(feature = $name)]
+                    ($name, $about),
+                )*
+            ]
+        }
+
+        pub fn build_named_effect(name: &str) -> Option<Box<dyn Effect>> {
+            match name {
+                $(
+                    #[cfg(feature = $name)]
+                    $name => Some(Box::new($mod::$effect::new($mod::$config::default()))),
+                )*
+                _ => None,
             }
         }
 
@@ -166,5 +197,39 @@ mod tests {
             .effect
             .is_some());
         assert!(Cli::try_parse_from(["ttfx", "matrix"]).is_err());
+    }
+
+    #[test]
+    fn named_catalog_lists_enabled_effects() {
+        let names: Vec<&str> = super::catalog_entries()
+            .iter()
+            .map(|(name, _about)| *name)
+            .collect();
+        #[cfg(feature = "all-effects")]
+        assert_eq!(names, ALL_EFFECT_NAMES);
+        #[cfg(all(feature = "decrypt", not(feature = "all-effects")))]
+        assert_eq!(names, ["decrypt"]);
+    }
+
+    #[test]
+    fn unknown_effect_name_builds_nothing() {
+        assert!(super::build_named_effect("not-an-effect").is_none());
+    }
+
+    #[cfg(feature = "decrypt")]
+    #[test]
+    fn decrypt_builds_from_name() {
+        assert!(super::build_named_effect("decrypt").is_some());
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "all-effects"))]
+    #[test]
+    fn default_configs_match_clap_subcommand_defaults() {
+        use clap::Parser;
+        for name in ALL_EFFECT_NAMES {
+            let via_clap = Cli::try_parse_from(["ttfx", *name]).unwrap().effect.unwrap();
+            let via_default = super::EffectCommand::with_defaults(name).unwrap();
+            assert_eq!(format!("{via_clap:?}"), format!("{via_default:?}"), "{name}");
+        }
     }
 }

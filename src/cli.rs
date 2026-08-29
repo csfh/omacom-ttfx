@@ -6,7 +6,7 @@ use clap::Parser;
 use crate::engine::animation::ExistingColorHandling;
 use crate::engine::canvas::Anchor;
 use crate::engine::terminal::TerminalConfig;
-use crate::utils::graphics::Color;
+use crate::utils::graphics::{parse_color, Color};
 
 fn parse_positive_int(s: &str) -> Result<i64, String> {
     let v: i64 = s.parse().map_err(|_| format!("invalid int value: '{s}'"))?;
@@ -32,16 +32,6 @@ fn parse_canvas_dimension(s: &str) -> Result<i64, String> {
         Ok(v)
     } else {
         Err(format!("{v} is not >= -1"))
-    }
-}
-
-/// argutils.ColorArg: <=3 chars -> xterm int 0-255, else hex.
-pub fn parse_color(s: &str) -> Result<Color, String> {
-    if s.len() <= 3 {
-        let code: u8 = s.parse().map_err(|_| format!("invalid color value: '{s}'"))?;
-        Ok(Color::from_xterm(code))
-    } else {
-        Color::from_hex(s)
     }
 }
 

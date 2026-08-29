@@ -149,6 +149,16 @@ impl Color {
     }
 }
 
+/// argutils.ColorArg: <=3 chars -> xterm int 0-255, else hex.
+pub fn parse_color(s: &str) -> Result<Color, String> {
+    if s.len() <= 3 {
+        let code: u8 = s.parse().map_err(|_| format!("invalid color value: '{s}'"))?;
+        Ok(Color::from_xterm(code))
+    } else {
+        Color::from_hex(s)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ColorPair {
     pub fg_color: Option<Color>,
@@ -378,7 +388,7 @@ pub fn shift_color_towards(color: &Color, target_color: &Color, factor: f64) -> 
 mod tests {
     use std::collections::HashMap;
 
-    use super::Color;
+    use super::{parse_color, Color};
 
     #[test]
     fn rgb_string_borrowed_lookup_matches_str_hash() {
@@ -395,5 +405,12 @@ mod tests {
             format!("{color:?}"),
             "Color { color_arg: Hex(\"12AbEf7\"), xterm_color: None, rgb_color: \"12AbEf7\" }"
         );
+    }
+
+    #[test]
+    fn parse_color_accepts_xterm_codes_and_hex() {
+        assert_eq!(parse_color("255").unwrap(), Color::from_xterm(255));
+        assert_eq!(parse_color("12AbEf").unwrap(), Color::from_hex("12AbEf").unwrap());
+        assert!(parse_color("not-a-color").is_err());
     }
 }

@@ -1,10 +1,8 @@
 //! Browser bindings: run any effect against a packed cell frame.
 
-use clap::{CommandFactory, Parser};
 use js_sys::{Uint8Array, Uint32Array};
 use wasm_bindgen::prelude::*;
 
-use crate::cli::Cli;
 use crate::engine::canvas::Anchor;
 use crate::engine::ctx::{Clock, EngineCtx};
 use crate::engine::effect::Effect;
@@ -142,28 +140,22 @@ impl Session {
 }
 
 fn build_effect(name: &str) -> Result<Box<dyn Effect>, JsError> {
-    match Cli::try_parse_from(["ttfx", name]) {
-        Ok(Cli { effect: Some(effect), .. }) => Ok(effect.build_effect()),
-        Ok(_) => Err(JsError::new(&format!("unknown effect '{name}'"))),
-        Err(e) => Err(JsError::new(&format!("unknown effect '{name}': {e}"))),
-    }
+    crate::effects::build_named_effect(name)
+        .ok_or_else(|| JsError::new(&format!("unknown effect '{name}'")))
 }
 
 /// JSON array of `{name, about}` for every registered effect.
 #[wasm_bindgen]
 pub fn effect_catalog() -> String {
     let mut out = String::from("[");
-    for (i, cmd) in Cli::command().get_subcommands().enumerate() {
+    for (i, (name, about)) in crate::effects::catalog_entries().iter().enumerate() {
         if i > 0 {
             out.push(',');
         }
         out.push_str("{\"name\":");
-        json_string(&mut out, cmd.get_name());
+        json_string(&mut out, name);
         out.push_str(",\"about\":");
-        json_string(
-            &mut out,
-            cmd.get_about().map(|s| s.to_string()).unwrap_or_default().as_str(),
-        );
+        json_string(&mut out, about);
         out.push('}');
     }
     out.push(']');
