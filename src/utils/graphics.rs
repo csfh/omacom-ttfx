@@ -152,6 +152,19 @@ impl Color {
         (self.rgb[0], self.rgb[1], self.rgb[2])
     }
 
+    /// RGB constructor used by gradient generation. Same `color_arg` as a
+    /// lowercase hex string, without going through `format!` / `from_hex`.
+    pub fn from_rgb(r: u8, g: u8, b: u8) -> Self {
+        let rgb = [r, g, b];
+        let rgb_color = RgbString::from_rgb(rgb);
+        Color {
+            color_arg: ColorArg::Hex(rgb_color),
+            xterm_color: None,
+            rgb,
+            rgb_color,
+        }
+    }
+
     fn parse_rgb(s: &str) -> [u8; 3] {
         [
             u8::from_str_radix(&s[0..2], 16).unwrap(),
@@ -270,7 +283,7 @@ impl Gradient {
                 let red = (sr + red_delta * i).clamp(0, 255);
                 let green = (sg + green_delta * i).clamp(0, 255);
                 let blue = (sb + blue_delta * i).clamp(0, 255);
-                spectrum.push(Color::from_hex(&format!("{red:02x}{green:02x}{blue:02x}")).unwrap());
+                spectrum.push(Color::from_rgb(red as u8, green as u8, blue as u8));
             }
             spectrum.push(end.clone());
         }
@@ -365,7 +378,8 @@ impl Gradient {
 
 /// graphics.random_color.
 pub fn random_color(rng: &mut Rng) -> Color {
-    Color::from_hex(&format!("{:06x}", rng.randint(0, 0xFFFFFF))).unwrap()
+    let n = rng.randint(0, 0xFFFFFF) as u32;
+    Color::from_rgb(((n >> 16) & 0xff) as u8, ((n >> 8) & 0xff) as u8, (n & 0xff) as u8)
 }
 
 /// graphics.shift_color_towards: float lerp with int() TRUNCATION back to hex

@@ -654,12 +654,10 @@ impl Animation {
             )
         };
 
-        let adjusted = format!(
-            "{:02x}{:02x}{:02x}",
-            round_half_even(red * 255.0),
-            round_half_even(green * 255.0),
-            round_half_even(blue * 255.0)
-        );
-        Color::from_hex(&adjusted).unwrap()
+        Color::from_rgb(
+            round_half_even(red * 255.0) as u8,
+            round_half_even(green * 255.0) as u8,
+            round_half_even(blue * 255.0) as u8,
+        )
     }
 }
