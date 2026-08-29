@@ -132,6 +132,16 @@ cargo build --release
 cargo build --release --target x86_64-unknown-linux-musl   # static, ~3.3 MB
 ```
 
+The default build compiles all 37 effects. To ship one, pass its CLI name as a Cargo feature:
+
+```sh
+./bin/build --effect decrypt
+cargo build --release --no-default-features --features decrypt
+cargo build --release --target wasm32-unknown-unknown --lib --no-default-features --features decrypt
+```
+
+`--help`, shell completions, `--random-effect`, and the wasm `effect_catalog()` then list only the effects compiled in. Several can be selected the same way (`--features decrypt,matrix`).
+
 `./bin/test` runs every suite. It needs python3, and the parity half needs a copy of
 upstream, which it clones at the pinned commit on first run:
 
