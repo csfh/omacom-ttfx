@@ -10,6 +10,7 @@ use crate::utils::ansi::ColorCode;
 use crate::utils::ansi;
 use crate::utils::easing::Easing;
 use crate::utils::graphics::{Color, ColorPair, Gradient};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::utils::hexterm;
 use crate::utils::ordered_map::OrderedMap;
 
@@ -234,6 +235,7 @@ pub struct Scene {
     pub sync: Option<SyncMetric>,
     pub ease: Option<Easing>,
     pub no_color: bool,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub use_xterm_colors: bool,
     /// Stable frame storage; never reordered.
     pub all_frames: Vec<Frame>,
@@ -283,6 +285,8 @@ impl Scene {
         if self.no_color {
             return None;
         }
+        // Wasm Session never sets xterm_colors; packed frames want 24-bit RGB.
+        #[cfg(not(target_arch = "wasm32"))]
         if self.use_xterm_colors {
             if let Some(code) = color.xterm_color {
                 return Some(ColorCode::Xterm(code));
@@ -451,6 +455,7 @@ impl Scene {
 pub struct Animation {
     pub scenes: OrderedMap<Scene>,
     pub active_scene: Option<Rc<str>>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub use_xterm_colors: bool,
     pub no_color: bool,
     pub existing_color_handling: ExistingColorHandling,
@@ -484,6 +489,7 @@ impl Animation {
         if self.no_color {
             return None;
         }
+        #[cfg(not(target_arch = "wasm32"))]
         if self.use_xterm_colors {
             if let Some(code) = color.xterm_color {
                 return Some(ColorCode::Xterm(code));

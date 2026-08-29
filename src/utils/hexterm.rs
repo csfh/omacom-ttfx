@@ -1,15 +1,21 @@
 //! xterm-256 <-> RGB conversion, ported from utils/hexterm.py.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::cell::RefCell;
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
 
 include!("hexterm_table.rs");
 
+#[cfg(not(target_arch = "wasm32"))]
 type Rgb = [u8; 3];
 
+#[cfg(not(target_arch = "wasm32"))]
 static XTERM_RGB: OnceLock<[Rgb; 256]> = OnceLock::new();
 
+#[cfg(not(target_arch = "wasm32"))]
 thread_local! {
     /// Scene and Animation both memoize this conversion upstream. Keeping the
     /// memo here also covers callers outside the animation engine and lets all
@@ -17,6 +23,7 @@ thread_local! {
     static HEX_TO_XTERM_CACHE: RefCell<HashMap<u32, u8>> = RefCell::new(HashMap::new());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn parse_rgb(hex_color: &str) -> Rgb {
     let s = hex_color.trim_matches('#');
     [
@@ -28,10 +35,12 @@ fn parse_rgb(hex_color: &str) -> Rgb {
 
 /// Parse the generated palette once rather than reparsing all 768 channels on
 /// every conversion.
+#[cfg(not(target_arch = "wasm32"))]
 fn xterm_rgb() -> &'static [Rgb; 256] {
     XTERM_RGB.get_or_init(|| std::array::from_fn(|code| parse_rgb(XTERM_TO_HEX[code])))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn closest_xterm([r, g, b]: Rgb) -> u8 {
     let mut min_diff = u16::MAX;
     let mut closest = 0u8;
@@ -51,6 +60,9 @@ fn closest_xterm([r, g, b]: Rgb) -> u8 {
 /// Closest xterm-256 code by mean absolute channel difference; linear scan over
 /// codes 0..=255 in order, strict `<` so the first minimum wins (upstream
 /// hexterm.py hex_to_xterm).
+///
+/// Wasm packed frames emit 24-bit RGB, so this conversion is native-only.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn hex_to_xterm(hex_color: &str) -> u8 {
     let rgb = parse_rgb(hex_color);
     let key = u32::from_be_bytes([0, rgb[0], rgb[1], rgb[2]]);
