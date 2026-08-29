@@ -4,16 +4,51 @@
 use std::cell::RefCell;
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
-#[cfg(not(target_arch = "wasm32"))]
-use std::sync::OnceLock;
-
+#[cfg(any(test, not(target_arch = "wasm32")))]
 include!("hexterm_table.rs");
+
+/// Canonical xterm-256 RGB: 16 VGA colors, a 6³ cube, then 24 grayscale.
+pub(crate) fn xterm_rgb(code: u8) -> [u8; 3] {
+    match code {
+        0..=15 => {
+            const SYSTEM: [[u8; 3]; 16] = [
+                [0x00, 0x00, 0x00],
+                [0x80, 0x00, 0x00],
+                [0x00, 0x80, 0x00],
+                [0x80, 0x80, 0x00],
+                [0x00, 0x00, 0x80],
+                [0x80, 0x00, 0x80],
+                [0x00, 0x80, 0x80],
+                [0xc0, 0xc0, 0xc0],
+                [0x80, 0x80, 0x80],
+                [0xff, 0x00, 0x00],
+                [0x00, 0xff, 0x00],
+                [0xff, 0xff, 0x00],
+                [0x00, 0x00, 0xff],
+                [0xff, 0x00, 0xff],
+                [0x00, 0xff, 0xff],
+                [0xff, 0xff, 0xff],
+            ];
+            SYSTEM[code as usize]
+        }
+        16..=231 => {
+            const LEVELS: [u8; 6] = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
+            let i = code - 16;
+            [
+                LEVELS[(i / 36) as usize],
+                LEVELS[((i / 6) % 6) as usize],
+                LEVELS[(i % 6) as usize],
+            ]
+        }
+        232..=255 => {
+            let v = 8 + (code - 232) * 10;
+            [v, v, v]
+        }
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 type Rgb = [u8; 3];
-
-#[cfg(not(target_arch = "wasm32"))]
-static XTERM_RGB: OnceLock<[Rgb; 256]> = OnceLock::new();
 
 #[cfg(not(target_arch = "wasm32"))]
 thread_local! {
@@ -33,25 +68,19 @@ fn parse_rgb(hex_color: &str) -> Rgb {
     ]
 }
 
-/// Parse the generated palette once rather than reparsing all 768 channels on
-/// every conversion.
-#[cfg(not(target_arch = "wasm32"))]
-fn xterm_rgb() -> &'static [Rgb; 256] {
-    XTERM_RGB.get_or_init(|| std::array::from_fn(|code| parse_rgb(XTERM_TO_HEX[code])))
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 fn closest_xterm([r, g, b]: Rgb) -> u8 {
     let mut min_diff = u16::MAX;
     let mut closest = 0u8;
-    for (code, &[xr, xg, xb]) in xterm_rgb().iter().enumerate() {
+    for code in 0u8..=255 {
+        let [xr, xg, xb] = xterm_rgb(code);
         // Upstream divides this sum by three before comparing it. Division by
         // the same positive constant is order-preserving, so comparing the
         // integer sums retains its strict-first-minimum tie behavior exactly.
         let diff = r.abs_diff(xr) as u16 + g.abs_diff(xg) as u16 + b.abs_diff(xb) as u16;
         if diff < min_diff {
             min_diff = diff;
-            closest = code as u8;
+            closest = code;
         }
     }
     closest
@@ -77,6 +106,9 @@ pub fn hex_to_xterm(hex_color: &str) -> u8 {
 }
 
 /// xterm code -> hex string without leading '#'.
+///
+/// Wasm builds Color RGB from [`xterm_rgb`] instead of this table.
+#[cfg(any(test, not(target_arch = "wasm32")))]
 pub fn xterm_to_hex(xterm_color: u8) -> &'static str {
     XTERM_TO_HEX[xterm_color as usize]
 }
@@ -116,6 +148,13 @@ mod tests {
         assert_eq!(xterm_to_hex(0), "000000");
         assert_eq!(xterm_to_hex(15), "ffffff");
         assert_eq!(xterm_to_hex(196), "ff0000");
+    }
+
+    #[test]
+    fn computed_rgb_matches_hex_table() {
+        for code in 0..=255u8 {
+            assert_eq!(xterm_rgb(code), parse_rgb(XTERM_TO_HEX[code as usize]), "{code}");
+        }
     }
 
     #[test]

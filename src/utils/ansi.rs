@@ -62,12 +62,8 @@ impl ColorCode {
                 )
             }
             ColorCode::Xterm(n) => {
-                let s = crate::utils::hexterm::xterm_to_hex(*n);
-                (
-                    u8::from_str_radix(&s[0..2], 16).unwrap_or(0),
-                    u8::from_str_radix(&s[2..4], 16).unwrap_or(0),
-                    u8::from_str_radix(&s[4..6], 16).unwrap_or(0),
-                )
+                let [r, g, b] = crate::utils::hexterm::xterm_rgb(*n);
+                (r, g, b)
             }
         };
         0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)

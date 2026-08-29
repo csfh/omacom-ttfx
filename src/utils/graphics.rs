@@ -34,6 +34,18 @@ impl RgbString {
             len: value.len() as u8,
         }
     }
+
+    fn from_rgb([r, g, b]: [u8; 3]) -> Self {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut bytes = [0; 7];
+        bytes[0] = HEX[(r >> 4) as usize];
+        bytes[1] = HEX[(r & 0x0f) as usize];
+        bytes[2] = HEX[(g >> 4) as usize];
+        bytes[3] = HEX[(g & 0x0f) as usize];
+        bytes[4] = HEX[(b >> 4) as usize];
+        bytes[5] = HEX[(b & 0x0f) as usize];
+        RgbString { bytes, len: 6 }
+    }
 }
 
 impl Deref for RgbString {
@@ -108,12 +120,12 @@ impl std::hash::Hash for Color {
 
 impl Color {
     pub fn from_xterm(code: u8) -> Self {
-        let rgb_color = RgbString::new(hexterm::xterm_to_hex(code));
+        let rgb = hexterm::xterm_rgb(code);
         Color {
             color_arg: ColorArg::Xterm(code),
             xterm_color: Some(code),
-            rgb: Self::parse_rgb(&rgb_color),
-            rgb_color,
+            rgb,
+            rgb_color: RgbString::from_rgb(rgb),
         }
     }
 
