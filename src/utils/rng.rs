@@ -10,6 +10,25 @@ pub struct Rng {
     s: [u64; 4],
 }
 
+/// Browser CSPRNG without the getrandom crate (its unused-target error
+/// strings were larger than this import).
+#[cfg(target_arch = "wasm32")]
+mod wasm_entropy {
+    use wasm_bindgen::prelude::*;
+
+    #[wasm_bindgen]
+    extern "C" {
+        #[wasm_bindgen(js_namespace = crypto, js_name = getRandomValues)]
+        fn get_random_values(buf: &js_sys::Uint8Array);
+    }
+
+    pub fn fill(buf: &mut [u8]) {
+        let array = js_sys::Uint8Array::new_with_length(buf.len() as u32);
+        get_random_values(&array);
+        array.copy_to(buf);
+    }
+}
+
 impl Rng {
     pub fn seeded(seed: u64) -> Self {
         // SplitMix64 expansion of the seed into the xoshiro state, the
@@ -29,7 +48,7 @@ impl Rng {
         let mut buf = [0u8; 8];
         #[cfg(target_arch = "wasm32")]
         {
-            getrandom::getrandom(&mut buf).expect("failed to read entropy");
+            wasm_entropy::fill(&mut buf);
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
