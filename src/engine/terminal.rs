@@ -756,11 +756,24 @@ impl Terminal {
                 let visual = &arena[cell as usize].animation.current_character_visual;
                 let ch = visual.symbol.chars().next().unwrap_or(' ');
                 symbols.push(if visual.hidden { b' ' as u32 } else { ch as u32 });
+                // Wasm Session never sets xterm_colors or no_color; packed cells
+                // already have 24-bit RGB on Color, so skip the ColorCode hex
+                // round-trip (to_string + parse) that native SGR still needs.
+                #[cfg(target_arch = "wasm32")]
+                let (mut cell_fg, mut cell_bg) = {
+                    let pair = visual.colors.as_ref();
+                    (
+                        packed_rgba(pair.and_then(|p| p.fg_color.as_ref())),
+                        packed_rgba(pair.and_then(|p| p.bg_color.as_ref())),
+                    )
+                };
+                #[cfg(not(target_arch = "wasm32"))]
                 let mut cell_fg = visual
                     .fg_color_code
                     .as_ref()
                     .map(crate::utils::ansi::ColorCode::rgb_u32)
                     .unwrap_or(0);
+                #[cfg(not(target_arch = "wasm32"))]
                 let mut cell_bg = visual
                     .bg_color_code
                     .as_ref()
@@ -811,6 +824,15 @@ impl Terminal {
             flags,
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn packed_rgba(color: Option<&Color>) -> u32 {
+    let Some(color) = color else {
+        return 0;
+    };
+    let (r, g, b) = color.rgb_ints();
+    0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
 }
 
 /// One rendered frame as parallel arrays, display-order, one Unicode scalar per cell.

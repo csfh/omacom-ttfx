@@ -280,6 +280,9 @@ impl Scene {
 
     /// Scene._get_color_code. Upstream memoizes into a process-global ClassVar
     /// dict; the memo is value-transparent so we just recompute.
+    ///
+    /// Wasm packed frames read `Color` RGB, so this SGR code stays native.
+    #[cfg(not(target_arch = "wasm32"))]
     fn get_color_code(&self, color: Option<&Color>) -> Option<ColorCode> {
         let color = color?;
         if self.no_color {
@@ -304,6 +307,7 @@ impl Scene {
         if self.preexisting_bold {
             params.bold = true;
         }
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(colors) = &params.colors {
             params.fg_color_code = self.get_color_code(colors.fg_color.as_ref());
             params.bg_color_code = self.get_color_code(colors.bg_color.as_ref());
@@ -484,6 +488,7 @@ impl Animation {
 
     /// Animation._get_color_code (identical logic to Scene's; the upstream
     /// per-instance memo is value-transparent and omitted).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn get_color_code(&mut self, color: Option<&Color>) -> Option<ColorCode> {
         let color = color?;
         if self.no_color {
@@ -563,15 +568,15 @@ impl Animation {
             colors = ColorPair::new(self.input_fg_color.clone(), self.input_bg_color.clone());
             bold = self.input_bold;
         }
-        let fg_code = self.get_color_code(colors.fg_color.as_ref());
-        let bg_code = self.get_color_code(colors.bg_color.as_ref());
         self.current_character_visual = Rc::new(CharacterVisual::new(
             symbol,
             VisualParams {
                 bold,
                 colors: Some(colors),
-                fg_color_code: fg_code,
-                bg_color_code: bg_code,
+                #[cfg(not(target_arch = "wasm32"))]
+                fg_color_code: self.get_color_code(colors.fg_color.as_ref()),
+                #[cfg(not(target_arch = "wasm32"))]
+                bg_color_code: self.get_color_code(colors.bg_color.as_ref()),
                 ..Default::default()
             },
         ));
