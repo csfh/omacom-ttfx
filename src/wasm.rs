@@ -30,6 +30,7 @@ impl Session {
         seed: Option<f64>,
         frame_rate: u32,
         palette: Option<String>,
+        background: Option<String>,
     ) -> Result<Session, JsError> {
         if input.trim().is_empty() {
             return Err(JsError::new("NO INPUT."));
@@ -50,7 +51,10 @@ impl Session {
             reuse_canvas: true,
             no_eol: true,
             no_restore_cursor: true,
-            terminal_background_color: Color::from_hex("000000").unwrap(),
+            terminal_background_color: match background.as_deref() {
+                Some(hex) => Color::from_hex(hex).map_err(|e| JsError::new(&e))?,
+                None => Color::from_hex("000000").unwrap(),
+            },
             terminal_size: Some((columns, rows)),
             ..TerminalConfig::default()
         };
