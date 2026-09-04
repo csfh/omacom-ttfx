@@ -71,6 +71,21 @@ macro_rules! define_effects {
                     _ => None,
                 }
             }
+
+            pub fn apply_palette(
+                &mut self,
+                palette: &crate::utils::palette::Palette,
+                skip: &::std::collections::HashSet<String>,
+            ) {
+                match self {
+                    $(
+                        #[cfg(feature = $name)]
+                        EffectCommand::$variant(config) => {
+                            crate::utils::palette::ApplyPalette::apply_palette(config, palette, skip)
+                        }
+                    )*
+                }
+            }
         }
 
         pub fn catalog_entries() -> &'static [(&'static str, &'static str)] {
@@ -83,10 +98,27 @@ macro_rules! define_effects {
         }
 
         pub fn build_named_effect(name: &str) -> Option<Box<dyn Effect>> {
+            build_named_effect_with_palette(name, None)
+        }
+
+        pub fn build_named_effect_with_palette(
+            name: &str,
+            palette: Option<&crate::utils::palette::Palette>,
+        ) -> Option<Box<dyn Effect>> {
             match name {
                 $(
                     #[cfg(feature = $name)]
-                    $name => Some(Box::new($mod::$effect::new($mod::$config::default()))),
+                    $name => {
+                        let mut config = $mod::$config::default();
+                        if let Some(palette) = palette {
+                            crate::utils::palette::ApplyPalette::apply_palette(
+                                &mut config,
+                                palette,
+                                &::std::collections::HashSet::new(),
+                            );
+                        }
+                        Some(Box::new($mod::$effect::new(config)))
+                    }
                 )*
                 _ => None,
             }
@@ -136,6 +168,216 @@ define_effects! {
     "waves", waves, Waves, WavesConfig, Waves, "Waves travel across the terminal leaving behind the characters.";
     "wipe", wipe, Wipe, WipeConfig, Wipe, "Wipes the text across the terminal to reveal characters.";
 }
+
+macro_rules! impl_apply_palette {
+    ($feature:literal, $ty:ty, $($field:ident),+ $(,)?) => {
+        #[cfg(feature = $feature)]
+        impl crate::utils::palette::ApplyPalette for $ty {
+            fn apply_palette(
+                &mut self,
+                palette: &crate::utils::palette::Palette,
+                skip: &::std::collections::HashSet<String>,
+            ) {
+                let mut single_index = 0usize;
+                $(
+                    if !skip.contains(stringify!($field)) {
+                        crate::utils::palette::Recolor::recolor(
+                            &mut self.$field,
+                            palette,
+                            &mut single_index,
+                        );
+                    }
+                )+
+            }
+        }
+    };
+}
+
+impl_apply_palette!(
+    "beams",
+    beams::BeamsConfig,
+    beam_gradient_stops,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "binarypath",
+    binarypath::BinaryPathConfig,
+    final_gradient_stops,
+    binary_colors
+);
+impl_apply_palette!(
+    "blackhole",
+    blackhole::BlackholeConfig,
+    blackhole_color,
+    star_colors,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "bouncyballs",
+    bouncyballs::BouncyBallsConfig,
+    ball_colors,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "bubbles",
+    bubbles::BubblesConfig,
+    bubble_colors,
+    pop_color,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "burn",
+    burn::BurnConfig,
+    starting_color,
+    burn_colors,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "colorshift",
+    colorshift::ColorShiftConfig,
+    gradient_stops,
+    final_gradient_stops
+);
+impl_apply_palette!("crumble", crumble::CrumbleConfig, final_gradient_stops);
+impl_apply_palette!(
+    "decrypt",
+    decrypt::DecryptConfig,
+    ciphertext_colors,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "errorcorrect",
+    errorcorrect::ErrorCorrectConfig,
+    error_color,
+    correct_color,
+    final_gradient_stops
+);
+impl_apply_palette!("expand", expand::ExpandConfig, final_gradient_stops);
+impl_apply_palette!(
+    "fireworks",
+    fireworks::FireworksConfig,
+    firework_colors,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "highlight",
+    highlight::HighlightConfig,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "laseretch",
+    laseretch::LaserEtchConfig,
+    cool_gradient_stops,
+    laser_gradient_stops,
+    spark_gradient_stops,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "matrix",
+    matrix::MatrixConfig,
+    highlight_color,
+    rain_color_gradient,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "middleout",
+    middleout::MiddleoutConfig,
+    starting_color,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "orbittingvolley",
+    orbittingvolley::OrbittingVolleyConfig,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "overflow",
+    overflow::OverflowConfig,
+    overflow_gradient_stops,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "pour",
+    pour::PourConfig,
+    starting_color,
+    final_gradient_stops
+);
+impl_apply_palette!("print", print_effect::PrintConfig, final_gradient_stops);
+impl_apply_palette!("rain", rain::RainConfig, rain_colors, final_gradient_stops);
+impl_apply_palette!(
+    "randomsequence",
+    random_sequence::RandomSequenceConfig,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "rings",
+    rings::RingsConfig,
+    ring_colors,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "scattered",
+    scattered::ScatteredConfig,
+    final_gradient_stops
+);
+impl_apply_palette!("slice", slice::SliceConfig, final_gradient_stops);
+impl_apply_palette!("slide", slide::SlideConfig, final_gradient_stops);
+impl_apply_palette!(
+    "smoke",
+    smoke::SmokeConfig,
+    starting_color,
+    smoke_gradient_stops,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "spotlights",
+    spotlights::SpotlightsConfig,
+    final_gradient_stops
+);
+impl_apply_palette!("spray", spray::SprayConfig, final_gradient_stops);
+impl_apply_palette!(
+    "swarm",
+    swarm::SwarmConfig,
+    base_color,
+    flash_color,
+    final_gradient_stops
+);
+impl_apply_palette!("sweep", sweep::SweepConfig, final_gradient_stops);
+impl_apply_palette!(
+    "synthgrid",
+    synthgrid::SynthGridConfig,
+    grid_gradient_stops,
+    text_gradient_stops
+);
+impl_apply_palette!(
+    "thunderstorm",
+    thunderstorm::ThunderstormConfig,
+    lightning_color,
+    glowing_text_color,
+    spark_glow_color,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "unstable",
+    unstable::UnstableConfig,
+    unstable_color,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "vhstape",
+    vhstape::VhsTapeConfig,
+    glitch_line_colors,
+    glitch_wave_colors,
+    noise_colors,
+    final_gradient_stops
+);
+impl_apply_palette!(
+    "waves",
+    waves::WavesConfig,
+    wave_gradient_stops,
+    final_gradient_stops
+);
+impl_apply_palette!("wipe", wipe::WipeConfig, final_gradient_stops);
 
 #[cfg(test)]
 mod tests {
@@ -222,14 +464,51 @@ mod tests {
         assert!(super::build_named_effect("decrypt").is_some());
     }
 
+    #[cfg(feature = "decrypt")]
+    #[test]
+    fn named_effect_with_palette_builds() {
+        use crate::utils::palette::Palette;
+        let palette = Palette::from_hex_list("ff0000").unwrap();
+        assert!(super::build_named_effect_with_palette("decrypt", Some(&palette)).is_some());
+        assert!(super::build_named_effect_with_palette("decrypt", None).is_some());
+    }
+
     #[cfg(all(not(target_arch = "wasm32"), feature = "all-effects"))]
     #[test]
     fn default_configs_match_clap_subcommand_defaults() {
         use clap::Parser;
         for name in ALL_EFFECT_NAMES {
-            let via_clap = Cli::try_parse_from(["ttfx", *name]).unwrap().effect.unwrap();
+            let via_clap = Cli::try_parse_from(["ttfx", *name])
+                .unwrap()
+                .effect
+                .unwrap();
             let via_default = super::EffectCommand::with_defaults(name).unwrap();
-            assert_eq!(format!("{via_clap:?}"), format!("{via_default:?}"), "{name}");
+            assert_eq!(
+                format!("{via_clap:?}"),
+                format!("{via_default:?}"),
+                "{name}"
+            );
+        }
+    }
+
+    #[cfg(feature = "all-effects")]
+    #[test]
+    fn every_effect_applies_a_hex_palette() {
+        use crate::utils::graphics::parse_color;
+        use crate::utils::palette::Palette;
+        let palette = Palette::new(vec![
+            parse_color("ff0000").unwrap(),
+            parse_color("00ff00").unwrap(),
+        ])
+        .unwrap();
+        let skip = std::collections::HashSet::new();
+        for name in ALL_EFFECT_NAMES {
+            let original = format!("{:?}", super::EffectCommand::with_defaults(name).unwrap());
+            let mut cmd = super::EffectCommand::with_defaults(name).unwrap();
+            cmd.apply_palette(&palette, &skip);
+            let paletted = format!("{cmd:?}");
+            assert_ne!(original, paletted, "{name} ignored the palette");
+            let _effect = cmd.build_effect();
         }
     }
 }

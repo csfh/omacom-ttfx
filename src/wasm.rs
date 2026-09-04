@@ -1,6 +1,6 @@
 //! Browser bindings: run any effect against a packed cell frame.
 
-use js_sys::{Uint8Array, Uint32Array};
+use js_sys::{Uint32Array, Uint8Array};
 use wasm_bindgen::prelude::*;
 
 use crate::engine::canvas::Anchor;
@@ -8,6 +8,7 @@ use crate::engine::ctx::{Clock, EngineCtx};
 use crate::engine::effect::Effect;
 use crate::engine::terminal::{PackedFrame, TerminalConfig};
 use crate::utils::graphics::Color;
+use crate::utils::palette::Palette;
 use crate::utils::rng::Rng;
 
 #[wasm_bindgen]
@@ -28,6 +29,7 @@ impl Session {
         rows: u32,
         seed: Option<f64>,
         frame_rate: u32,
+        palette: Option<String>,
     ) -> Result<Session, JsError> {
         if input.trim().is_empty() {
             return Err(JsError::new("NO INPUT."));
@@ -53,9 +55,16 @@ impl Session {
             ..TerminalConfig::default()
         };
         let clock = Clock::virtual_with_frame_rate(if frame_rate > 0 { frame_rate } else { 60 });
-        let mut ctx = EngineCtx::new(input, config, rng, clock).map_err(|e| JsError::new(&e.to_string()))?;
-        let mut effect = build_effect(effect)?;
-        effect.build(&mut ctx).map_err(|e| JsError::new(&e.to_string()))?;
+        let mut ctx =
+            EngineCtx::new(input, config, rng, clock).map_err(|e| JsError::new(&e.to_string()))?;
+        let palette = match palette.as_deref() {
+            Some(s) => Some(Palette::from_hex_list(s).map_err(|e| JsError::new(&e))?),
+            None => None,
+        };
+        let mut effect = build_effect(effect, palette.as_ref())?;
+        effect
+            .build(&mut ctx)
+            .map_err(|e| JsError::new(&e.to_string()))?;
         Ok(Session {
             effect,
             ctx,
@@ -138,8 +147,8 @@ impl Session {
     }
 }
 
-fn build_effect(name: &str) -> Result<Box<dyn Effect>, JsError> {
-    crate::effects::build_named_effect(name)
+fn build_effect(name: &str, palette: Option<&Palette>) -> Result<Box<dyn Effect>, JsError> {
+    crate::effects::build_named_effect_with_palette(name, palette)
         .ok_or_else(|| JsError::new(&format!("unknown effect '{name}'")))
 }
 

@@ -119,7 +119,12 @@ ttfx --help                 # all 37 effects and the terminal options
 ttfx <effect> --help        # options for one effect
 ttfx --random-effect        # surprise me (--include-effects / --exclude-effects to filter)
 ttfx --print-completion bash|zsh
+ttfx --palette 7aa2f7,c0caf5,f7768e decrypt
 ```
+
+`--palette` takes hex colors (`#7aa2f7` or `7aa2f7`). Repeat the flag or separate
+colors with commas. Those colors replace each effect's default color arguments;
+color flags you pass on the effect still apply.
 
 Terminal options (canvas size and anchoring, color handling, frame rate, text wrapping) go
 before the effect name; effect options after it. Option names and defaults match `tte`, so
