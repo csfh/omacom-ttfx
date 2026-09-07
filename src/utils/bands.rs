@@ -35,32 +35,67 @@ pub fn field_band_index_in(t: f64, units: &[u32]) -> usize {
     units.len() - 1
 }
 
-/// Color each input character from the palette by its row in the word.
+/// Color each input character from the palette by its visual row in the word.
+///
 /// `input_coord.row` is 1-based and grows up, so the largest row is the top.
+/// Half-block art (`▄▀█`) encodes two spec pixels per terminal cell, the way
+/// the 19-row wordmark is stored in the screensaver logo. `t` is measured in
+/// those pixels so a full `█` is two units and a half block is one. Empty
+/// halves (the top of a leading `▄`, the bottom of a trailing `▀`) do not
+/// count, so the M peak cannot steal the crest from the other letters.
 pub fn apply_field_bands(terminal: &mut Terminal, palette: &Palette) {
-    let mut min_row = i64::MAX;
     let mut max_row = i64::MIN;
+    let mut min_half = f64::INFINITY;
+    let mut max_half = f64::NEG_INFINITY;
     for &id in &terminal.input_characters {
         let ch = &terminal.arena[id.0 as usize];
         if skip_char(ch) {
             continue;
         }
-        min_row = min_row.min(ch.input_coord.row);
         max_row = max_row.max(ch.input_coord.row);
     }
-    if min_row > max_row {
+    if max_row == i64::MIN {
         return;
     }
-    let span = (max_row - min_row + 1) as f64;
+    for &id in &terminal.input_characters {
+        let ch = &terminal.arena[id.0 as usize];
+        if skip_char(ch) {
+            continue;
+        }
+        let (lo, hi) = visual_half_range(max_row, ch);
+        min_half = min_half.min(lo);
+        max_half = max_half.max(hi);
+    }
+    let span = max_half - min_half;
+    if span <= 0.0 {
+        return;
+    }
     let ids: Vec<CharId> = terminal.input_characters.clone();
     for id in ids {
         let ch = &mut terminal.arena[id.0 as usize];
         if skip_char(ch) {
             continue;
         }
-        let t = (max_row as f64 - ch.input_coord.row as f64 + 0.5) / span;
+        let (lo, hi) = visual_half_range(max_row, ch);
+        let t = ((lo + hi) * 0.5 - min_half) / span;
         ch.animation.input_fg_color = Some(palette.color(field_band_index(t)));
         ch.uses_input_preexisting_colors = true;
+    }
+}
+
+/// Occupied half-pixel range `[lo, hi)` from the top of the cell grid.
+fn visual_half_range(max_row: i64, ch: &EffectCharacter) -> (f64, f64) {
+    let display_line = (max_row - ch.input_coord.row) as f64;
+    let (lo, hi) = block_half_span(&ch.input_symbol);
+    (display_line * 2.0 + lo, display_line * 2.0 + hi)
+}
+
+/// How much of a terminal cell a glyph inks, in half-pixels from the cell top.
+fn block_half_span(symbol: &str) -> (f64, f64) {
+    match symbol.chars().next().unwrap_or('\0') {
+        '▀' => (0.0, 1.0),
+        '▄' => (1.0, 2.0),
+        _ => (0.0, 2.0),
     }
 }
 
@@ -164,5 +199,75 @@ mod tests {
             let t = (19.0 - *row as f64 + 0.5) / 19.0;
             assert_eq!(*idx, field_band_index(t), "row {i} t={t}");
         }
+    }
+
+    fn band_of(ch: &crate::engine::character::EffectCharacter, palette: &Palette) -> usize {
+        let color = ch.animation.input_fg_color.unwrap();
+        (0..5)
+            .find(|&i| palette.color(i) == color)
+            .expect("palette color")
+    }
+
+    #[test]
+    fn half_blocks_follow_nineteen_pixel_rows() {
+        use crate::engine::terminal::{Terminal, TerminalConfig};
+        use crate::utils::palette::Palette;
+
+        // Screensaver encoding of the 19-row wordmark: a lower-half peak on
+        // line 0 (the M), then █ = two pixel rows, ▄▀ = one.
+        let mut lines = vec!["  ▄  ".to_string(), "▄███▄".to_string()];
+        for _ in 0..6 {
+            lines.push("█████".to_string());
+        }
+        lines.push("▀███▀".to_string());
+        lines.push("  █  ".to_string());
+        let input = lines.join("\n");
+        let mut terminal = Terminal::new(
+            &input,
+            TerminalConfig {
+                canvas_width: 5,
+                canvas_height: 10,
+                ignore_terminal_dimensions: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let palette = Palette::from_hex_list("111111,222222,333333,444444,555555").unwrap();
+        apply_field_bands(&mut terminal, &palette);
+
+        let mut by_col_row: Vec<(i64, i64, usize, String)> = terminal
+            .input_characters
+            .iter()
+            .map(|&id| {
+                let ch = &terminal.arena[id.0 as usize];
+                (
+                    ch.input_coord.column,
+                    ch.input_coord.row,
+                    band_of(ch, &palette),
+                    ch.input_symbol.clone(),
+                )
+            })
+            .collect();
+        by_col_row.sort_by_key(|&(c, r, _, _)| (c, std::cmp::Reverse(r)));
+
+        // The M peak (top ▄) is crest.
+        let peak_band = by_col_row
+            .iter()
+            .filter(|(_, _, _, s)| s.as_str() == "▄")
+            .max_by_key(|(_, r, _, _)| *r)
+            .unwrap();
+        assert_eq!(peak_band.2, 0, "M peak must be crest, got {peak_band:?}");
+
+        // A letter with no peak: the top-row █ (second input line) is still
+        // crest. Character-row mapping would already have moved it to hover.
+        let body_top = by_col_row
+            .iter()
+            .filter(|(_, _, _, s)| s.as_str() == "█")
+            .max_by_key(|(_, r, _, _)| *r)
+            .unwrap();
+        assert_eq!(
+            body_top.2, 0,
+            "first full body row must stay crest, got {body_top:?}"
+        );
     }
 }
