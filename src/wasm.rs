@@ -31,6 +31,7 @@ impl Session {
         frame_rate: u32,
         palette: Option<String>,
         background: Option<String>,
+        bands: Option<bool>,
     ) -> Result<Session, JsError> {
         if input.trim().is_empty() {
             return Err(JsError::new("NO INPUT."));
@@ -56,6 +57,11 @@ impl Session {
                 None => Color::from_hex("000000").unwrap(),
             },
             terminal_size: Some((columns, rows)),
+            existing_color_handling: if bands.unwrap_or(false) {
+                crate::engine::animation::ExistingColorHandling::Always
+            } else {
+                crate::engine::animation::ExistingColorHandling::Ignore
+            },
             ..TerminalConfig::default()
         };
         let clock = Clock::virtual_with_frame_rate(if frame_rate > 0 { frame_rate } else { 60 });
@@ -65,6 +71,13 @@ impl Session {
             Some(s) => Some(Palette::from_hex_list(s).map_err(|e| JsError::new(&e))?),
             None => None,
         };
+        if bands.unwrap_or(false) {
+            let Some(palette) = palette.as_ref() else {
+                return Err(JsError::new("--bands requires a palette"));
+            };
+            crate::utils::bands::apply_field_bands(&mut ctx.terminal, palette);
+            ctx.preexisting_colors_present = true;
+        }
         let mut effect = build_effect(effect, palette.as_ref())?;
         effect
             .build(&mut ctx)
@@ -154,6 +167,12 @@ impl Session {
 fn build_effect(name: &str, palette: Option<&Palette>) -> Result<Box<dyn Effect>, JsError> {
     crate::effects::build_named_effect_with_palette(name, palette)
         .ok_or_else(|| JsError::new(&format!("unknown effect '{name}'")))
+}
+
+/// Which 3-1-3-2-4 band `t` (0 at the top, 1 at the bottom) falls in.
+#[wasm_bindgen]
+pub fn field_band_index(t: f64) -> u32 {
+    crate::utils::bands::field_band_index(t) as u32
 }
 
 /// JSON array of `{name, about}` for every registered effect.

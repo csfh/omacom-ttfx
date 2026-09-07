@@ -1,5 +1,6 @@
 pub mod easing;
 pub mod ansi;
+pub mod bands;
 pub mod geometry;
 pub mod graphics;
 pub mod hexterm;

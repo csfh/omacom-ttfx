@@ -138,6 +138,13 @@ fn main() -> ExitCode {
     }
 
     let mut config = cli.terminal_config();
+    if cli.bands {
+        if cli.palette().is_none() {
+            ttfx::errln!("Error: --bands requires --palette.");
+            return ExitCode::from(1);
+        }
+        config.existing_color_handling = ttfx::engine::animation::ExistingColorHandling::Always;
+    }
     // SIGWINCH is delivered to every process in the terminal's foreground group,
     // whatever its stdout points at. Reacting to it when the animation is being
     // redirected would leave a truncated first run followed by a complete second
@@ -171,6 +178,12 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
+        if cli.bands {
+            if let Some(palette) = cli.palette() {
+                ttfx::utils::bands::apply_field_bands(&mut ctx.terminal, &palette);
+                ctx.preexisting_colors_present = true;
+            }
+        }
         let mut effect = effect_command.build_effect();
 
         let outcome = if cli.parity_dump {

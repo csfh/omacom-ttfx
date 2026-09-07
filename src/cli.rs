@@ -123,6 +123,11 @@ pub struct Cli {
     #[arg(long = "palette", value_name = "HEX[,HEX...]", action = clap::ArgAction::Append, value_parser = parse_palette_arg)]
     pub palette_args: Vec<Vec<Color>>,
 
+    /// Color the word in 3-1-3-2-4 field bands using --palette (crest, hover,
+    /// lit, mid, dim from the top). Requires --palette.
+    #[arg(long = "bands", default_value_t = false)]
+    pub bands: bool,
+
     /// Print a shell completion script and exit
     #[arg(long = "print-completion", value_name = "SHELL", value_parser = ["bash", "zsh"])]
     pub print_completion: Option<String>,
@@ -209,6 +214,26 @@ mod tests {
             EffectCommand::Decrypt(config) => config,
             _ => panic!("expected decrypt"),
         }
+    }
+
+    #[test]
+    fn bands_flag_defaults_off() {
+        let cli = Cli::try_parse_from(["ttfx", "--palette", "7aa2f7", "decrypt"]).unwrap();
+        assert!(!cli.bands);
+    }
+
+    #[test]
+    fn bands_flag_is_accepted_with_palette() {
+        let cli = Cli::try_parse_from([
+            "ttfx",
+            "--palette",
+            "aa0000,00aa00,0000aa,aaaa00,00aaaa",
+            "--bands",
+            "decrypt",
+        ])
+        .unwrap();
+        assert!(cli.bands);
+        assert_eq!(cli.palette().unwrap().colors().len(), 5);
     }
 
     #[test]
