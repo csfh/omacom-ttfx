@@ -102,9 +102,10 @@ pub fn field_band_index_n(i: u32, n: u32) -> usize {
 /// Color each input character from the palette by its row in the word.
 ///
 /// `input_coord.row` is 1-based and grows up, so the largest row is the top.
-/// Bands are laid out on whole terminal rows (3-1-3-2-4, largest remainder)
-/// so every stripe is visible. A `█` has one color; measuring in half-pixels
-/// lets the 1-unit hover fall between two cell centers and vanish.
+/// 3-1-3-2-4 is laid out on the *body* rows (lines with at least half the
+/// ink of the densest line). The Omarchy FIGlet's M peak and Y tail are
+/// sparse; counting them in the span stole a crest row, so O/A/R only got
+/// a one-row cap. Sparse rows above the body stay crest; below stay dim.
 pub fn apply_field_bands(terminal: &mut Terminal, palette: &Palette) {
     let mut min_row = i64::MAX;
     let mut max_row = i64::MIN;
@@ -119,15 +120,39 @@ pub fn apply_field_bands(terminal: &mut Terminal, palette: &Palette) {
     if min_row > max_row {
         return;
     }
-    let n = (max_row - min_row + 1) as u32;
+    let n_lines = (max_row - min_row + 1) as usize;
+    let mut ink = vec![0u32; n_lines];
+    for &id in &terminal.input_characters {
+        let ch = &terminal.arena[id.0 as usize];
+        if skip_char(ch) {
+            continue;
+        }
+        ink[(max_row - ch.input_coord.row) as usize] += 1;
+    }
+    let max_ink = ink.iter().copied().max().unwrap_or(0);
+    let threshold = max_ink / 2;
+    let mut body_top = 0usize;
+    let mut body_bot = n_lines.saturating_sub(1);
+    if let Some(top) = ink.iter().position(|&n| n > threshold) {
+        body_top = top;
+        body_bot = ink.iter().rposition(|&n| n > threshold).unwrap_or(top);
+    }
+    let body_n = (body_bot - body_top + 1) as u32;
     let ids: Vec<CharId> = terminal.input_characters.clone();
     for id in ids {
         let ch = &mut terminal.arena[id.0 as usize];
         if skip_char(ch) {
             continue;
         }
-        let i = (max_row - ch.input_coord.row) as u32;
-        ch.animation.input_fg_color = Some(palette.color(field_band_index_n(i, n)));
+        let display = (max_row - ch.input_coord.row) as usize;
+        let band = if display < body_top {
+            0
+        } else if display > body_bot {
+            FIELD_BAND_UNITS.len() - 1
+        } else {
+            field_band_index_n((display - body_top) as u32, body_n)
+        };
+        ch.animation.input_fg_color = Some(palette.color(band));
         ch.uses_input_preexisting_colors = true;
     }
 }
@@ -296,6 +321,8 @@ mod tests {
             .collect();
         by_row.sort_by_key(|(row, _)| std::cmp::Reverse(*row));
         let bands: Vec<usize> = by_row.into_iter().map(|(_, b)| b).collect();
-        assert_eq!(bands, vec![0, 0, 1, 2, 2, 3, 3, 4, 4, 4]);
+        // Sparse peak (row 0) and tail stay crest/dim; 3-1-3-2-4 is 2-1-2-1-2
+        // on the 8 body rows, so the first two full letter rows are crest.
+        assert_eq!(bands, vec![0, 0, 0, 1, 2, 2, 3, 4, 4, 4]);
     }
 }
