@@ -35,67 +35,100 @@ pub fn field_band_index_in(t: f64, units: &[u32]) -> usize {
     units.len() - 1
 }
 
-/// Color each input character from the palette by its visual row in the word.
+/// How many of `n` discrete rows each band gets. Hamilton / largest remainder
+/// so a 1-unit hover is never dropped when `n` is not a multiple of 13.
+pub fn field_band_counts(n: u32) -> Vec<u32> {
+    let bands = FIELD_BAND_UNITS.len();
+    if n == 0 {
+        return vec![0; bands];
+    }
+    let total = field_band_rows() as f64;
+    let exact: Vec<f64> = FIELD_BAND_UNITS
+        .iter()
+        .map(|&u| n as f64 * u as f64 / total)
+        .collect();
+    let mut counts: Vec<u32> = exact.iter().map(|e| e.floor() as u32).collect();
+    let mut remain = n - counts.iter().sum::<u32>();
+    let mut order: Vec<usize> = (0..bands).collect();
+    order.sort_by(|&a, &b| {
+        exact[b]
+            .fract()
+            .partial_cmp(&exact[a].fract())
+            .unwrap()
+            .then(a.cmp(&b))
+    });
+    for i in order {
+        if remain == 0 {
+            break;
+        }
+        counts[i] += 1;
+        remain -= 1;
+    }
+    if n >= bands as u32 {
+        while let Some(zero) = counts.iter().position(|&c| c == 0) {
+            let Some(donor) = counts
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, &c)| c > 1)
+                .map(|(i, _)| i)
+            else {
+                break;
+            };
+            counts[donor] -= 1;
+            counts[zero] += 1;
+        }
+    }
+    counts
+}
+
+/// Band for discrete row `i` of `n` (0 at the top).
+pub fn field_band_index_n(i: u32, n: u32) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    let i = i.min(n - 1);
+    let counts = field_band_counts(n);
+    let mut acc = 0u32;
+    for (b, &c) in counts.iter().enumerate() {
+        acc += c;
+        if i < acc {
+            return b;
+        }
+    }
+    counts.len() - 1
+}
+
+/// Color each input character from the palette by its row in the word.
 ///
 /// `input_coord.row` is 1-based and grows up, so the largest row is the top.
-/// Half-block art (`▄▀█`) encodes two spec pixels per terminal cell, the way
-/// the 19-row wordmark is stored in the screensaver logo. `t` is measured in
-/// those pixels so a full `█` is two units and a half block is one. Empty
-/// halves (the top of a leading `▄`, the bottom of a trailing `▀`) do not
-/// count, so the M peak cannot steal the crest from the other letters.
+/// Bands are laid out on whole terminal rows (3-1-3-2-4, largest remainder)
+/// so every stripe is visible. A `█` has one color; measuring in half-pixels
+/// lets the 1-unit hover fall between two cell centers and vanish.
 pub fn apply_field_bands(terminal: &mut Terminal, palette: &Palette) {
+    let mut min_row = i64::MAX;
     let mut max_row = i64::MIN;
-    let mut min_half = f64::INFINITY;
-    let mut max_half = f64::NEG_INFINITY;
     for &id in &terminal.input_characters {
         let ch = &terminal.arena[id.0 as usize];
         if skip_char(ch) {
             continue;
         }
+        min_row = min_row.min(ch.input_coord.row);
         max_row = max_row.max(ch.input_coord.row);
     }
-    if max_row == i64::MIN {
+    if min_row > max_row {
         return;
     }
-    for &id in &terminal.input_characters {
-        let ch = &terminal.arena[id.0 as usize];
-        if skip_char(ch) {
-            continue;
-        }
-        let (lo, hi) = visual_half_range(max_row, ch);
-        min_half = min_half.min(lo);
-        max_half = max_half.max(hi);
-    }
-    let span = max_half - min_half;
-    if span <= 0.0 {
-        return;
-    }
+    let n = (max_row - min_row + 1) as u32;
     let ids: Vec<CharId> = terminal.input_characters.clone();
     for id in ids {
         let ch = &mut terminal.arena[id.0 as usize];
         if skip_char(ch) {
             continue;
         }
-        let (lo, hi) = visual_half_range(max_row, ch);
-        let t = ((lo + hi) * 0.5 - min_half) / span;
-        ch.animation.input_fg_color = Some(palette.color(field_band_index(t)));
+        let i = (max_row - ch.input_coord.row) as u32;
+        ch.animation.input_fg_color = Some(palette.color(field_band_index_n(i, n)));
         ch.uses_input_preexisting_colors = true;
-    }
-}
-
-/// Occupied half-pixel range `[lo, hi)` from the top of the cell grid.
-fn visual_half_range(max_row: i64, ch: &EffectCharacter) -> (f64, f64) {
-    let display_line = (max_row - ch.input_coord.row) as f64;
-    let (lo, hi) = block_half_span(&ch.input_symbol);
-    (display_line * 2.0 + lo, display_line * 2.0 + hi)
-}
-
-/// How much of a terminal cell a glyph inks, in half-pixels from the cell top.
-fn block_half_span(symbol: &str) -> (f64, f64) {
-    match symbol.chars().next().unwrap_or('\0') {
-        '▀' => (0.0, 1.0),
-        '▄' => (1.0, 2.0),
-        _ => (0.0, 2.0),
     }
 }
 
@@ -195,9 +228,26 @@ mod tests {
             .collect();
         by_row.sort_by_key(|(row, _)| std::cmp::Reverse(*row));
 
+        let expected = [0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 4, 4];
+        assert_eq!(by_row.len(), 19);
         for (i, (row, idx)) in by_row.iter().enumerate() {
-            let t = (19.0 - *row as f64 + 0.5) / 19.0;
-            assert_eq!(*idx, field_band_index(t), "row {i} t={t}");
+            assert_eq!(*row, 19 - i as i64);
+            assert_eq!(*idx, expected[i], "row {i}");
+        }
+    }
+
+    #[test]
+    fn discrete_rows_never_drop_a_band() {
+        assert_eq!(field_band_counts(13), vec![3, 1, 3, 2, 4]);
+        assert_eq!(field_band_counts(19), vec![4, 2, 4, 3, 6]);
+        assert_eq!(field_band_counts(10), vec![2, 1, 2, 2, 3]);
+        for n in 5..=40 {
+            let counts = field_band_counts(n);
+            assert_eq!(counts.iter().sum::<u32>(), n, "n={n}");
+            assert!(
+                counts.iter().all(|&c| c >= 1),
+                "n={n} skipped a band: {counts:?}"
+            );
         }
     }
 
@@ -209,12 +259,10 @@ mod tests {
     }
 
     #[test]
-    fn half_blocks_follow_nineteen_pixel_rows() {
+    fn ten_line_word_shows_all_five_stripes() {
         use crate::engine::terminal::{Terminal, TerminalConfig};
         use crate::utils::palette::Palette;
 
-        // Screensaver encoding of the 19-row wordmark: a lower-half peak on
-        // line 0 (the M), then █ = two pixel rows, ▄▀ = one.
         let mut lines = vec!["  ▄  ".to_string(), "▄███▄".to_string()];
         for _ in 0..6 {
             lines.push("█████".to_string());
@@ -235,39 +283,19 @@ mod tests {
         let palette = Palette::from_hex_list("111111,222222,333333,444444,555555").unwrap();
         apply_field_bands(&mut terminal, &palette);
 
-        let mut by_col_row: Vec<(i64, i64, usize, String)> = terminal
+        let mut by_row: Vec<(i64, usize)> = terminal
             .input_characters
             .iter()
-            .map(|&id| {
+            .filter_map(|&id| {
                 let ch = &terminal.arena[id.0 as usize];
-                (
-                    ch.input_coord.column,
-                    ch.input_coord.row,
-                    band_of(ch, &palette),
-                    ch.input_symbol.clone(),
-                )
+                if ch.input_coord.column != 3 {
+                    return None;
+                }
+                Some((ch.input_coord.row, band_of(ch, &palette)))
             })
             .collect();
-        by_col_row.sort_by_key(|&(c, r, _, _)| (c, std::cmp::Reverse(r)));
-
-        // The M peak (top ▄) is crest.
-        let peak_band = by_col_row
-            .iter()
-            .filter(|(_, _, _, s)| s.as_str() == "▄")
-            .max_by_key(|(_, r, _, _)| *r)
-            .unwrap();
-        assert_eq!(peak_band.2, 0, "M peak must be crest, got {peak_band:?}");
-
-        // A letter with no peak: the top-row █ (second input line) is still
-        // crest. Character-row mapping would already have moved it to hover.
-        let body_top = by_col_row
-            .iter()
-            .filter(|(_, _, _, s)| s.as_str() == "█")
-            .max_by_key(|(_, r, _, _)| *r)
-            .unwrap();
-        assert_eq!(
-            body_top.2, 0,
-            "first full body row must stay crest, got {body_top:?}"
-        );
+        by_row.sort_by_key(|(row, _)| std::cmp::Reverse(*row));
+        let bands: Vec<usize> = by_row.into_iter().map(|(_, b)| b).collect();
+        assert_eq!(bands, vec![0, 0, 1, 2, 2, 3, 3, 4, 4, 4]);
     }
 }
