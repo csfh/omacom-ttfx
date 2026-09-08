@@ -127,11 +127,11 @@ ttfx --palette aa0000,00aa00,0000aa,aaaa00,00aaaa --bands decrypt
 colors with commas. Those colors replace each effect's default color arguments;
 color flags you pass on the effect still apply.
 
-`--bands` colors the input word in five vertical field bands: 4, 1, 4, 3, 5
-units from the top (crest, hover, lit, mid, dim). The field is 17 units tall;
-`t` is 0 at the top of the word and 1 at the bottom. Requires `--palette` with
-five colors in that order. The wasm `Session` constructor takes the same
-palette, background, and `bands` arguments.
+`--bands` colors the input word in five vertical field bands: 4, 3, 4, 3, 5
+units from the top (crest, hover, lit, mid, dim). The field is 19 units tall,
+one per wordmark bitmap row. Requires `--palette` with five colors in that
+order. The wasm `Session` constructor takes the same palette, background, and
+`bands` arguments.
 
 Terminal options (canvas size and anchoring, color handling, frame rate, text wrapping) go
 before the effect name; effect options after it. Option names and defaults match `tte`, so
