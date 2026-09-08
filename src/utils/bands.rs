@@ -1,4 +1,4 @@
-//! Vertical field bands on the input word: 4, 3, 4, 3, 5 units crest to dim.
+//! Vertical field bands on the input word: 5, 2, 4, 3, 5 units crest to dim.
 //!
 //! The field is 19 units tall, one per wordmark bitmap row. `t` is 0 at the
 //! top of the word and 1 at the bottom. Palette color 0 is crest, then hover,
@@ -9,7 +9,7 @@ use crate::engine::terminal::Terminal;
 use crate::utils::palette::Palette;
 
 /// Crest, hover, lit, mid, dim — top to bottom.
-pub const FIELD_BAND_UNITS: &[u32] = &[4, 3, 4, 3, 5];
+pub const FIELD_BAND_UNITS: &[u32] = &[5, 2, 4, 3, 5];
 
 pub fn field_band_rows() -> u32 {
     FIELD_BAND_UNITS.iter().sum()
@@ -37,7 +37,7 @@ pub fn field_band_index_in(t: f64, units: &[u32]) -> usize {
 }
 
 /// How many of `n` discrete rows each band gets. Hamilton / largest remainder
-/// so a 1-unit hover is never dropped when `n` is not a multiple of 13.
+/// so a 1-unit hover is never dropped when `n` is not a multiple of 19.
 pub fn field_band_counts(n: u32) -> Vec<u32> {
     let bands = FIELD_BAND_UNITS.len();
     if n == 0 {
@@ -103,10 +103,9 @@ pub fn field_band_index_n(i: u32, n: u32) -> usize {
 /// Color each input character from the palette by its row in the word.
 ///
 /// `input_coord.row` is 1-based and grows up, so the largest row is the top.
-/// 4-3-4-3-5 is laid out on the *body* rows (lines with at least half the
-/// ink of the densest line). The Omarchy FIGlet's M peak and Y tail are
-/// sparse; counting them in the span stole a crest row, so O/A/R only got
-/// a one-row cap. Sparse rows above the body stay crest; below stay dim.
+/// 5-2-4-3-5 is a ratio: whatever number of lines the file has, those five
+/// bands are spread across them (19 lines stay 5-2-4-3-5; 10 lines become
+/// 3-1-2-1-3).
 pub fn apply_field_bands(terminal: &mut Terminal, palette: &Palette) {
     let mut min_row = i64::MAX;
     let mut max_row = i64::MIN;
@@ -121,38 +120,15 @@ pub fn apply_field_bands(terminal: &mut Terminal, palette: &Palette) {
     if min_row > max_row {
         return;
     }
-    let n_lines = (max_row - min_row + 1) as usize;
-    let mut ink = vec![0u32; n_lines];
-    for &id in &terminal.input_characters {
-        let ch = &terminal.arena[id.0 as usize];
-        if skip_char(ch) {
-            continue;
-        }
-        ink[(max_row - ch.input_coord.row) as usize] += 1;
-    }
-    let max_ink = ink.iter().copied().max().unwrap_or(0);
-    let threshold = max_ink / 2;
-    let mut body_top = 0usize;
-    let mut body_bot = n_lines.saturating_sub(1);
-    if let Some(top) = ink.iter().position(|&n| n > threshold) {
-        body_top = top;
-        body_bot = ink.iter().rposition(|&n| n > threshold).unwrap_or(top);
-    }
-    let body_n = (body_bot - body_top + 1) as u32;
+    let n = (max_row - min_row + 1) as u32;
     let ids: Vec<CharId> = terminal.input_characters.clone();
     for id in ids {
         let ch = &mut terminal.arena[id.0 as usize];
         if skip_char(ch) {
             continue;
         }
-        let display = (max_row - ch.input_coord.row) as usize;
-        let band = if display < body_top {
-            0
-        } else if display > body_bot {
-            FIELD_BAND_UNITS.len() - 1
-        } else {
-            field_band_index_n((display - body_top) as u32, body_n)
-        };
+        let display = (max_row - ch.input_coord.row) as u32;
+        let band = field_band_index_n(display, n);
         ch.animation.input_fg_color = Some(palette.color(band));
         ch.uses_input_preexisting_colors = true;
     }
@@ -167,16 +143,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn spec_units_are_four_three_four_three_five() {
-        assert_eq!(FIELD_BAND_UNITS, &[4, 3, 4, 3, 5]);
+    fn spec_units_are_five_two_four_three_five() {
+        assert_eq!(FIELD_BAND_UNITS, &[5, 2, 4, 3, 5]);
         assert_eq!(field_band_rows(), 19);
     }
 
     #[test]
     fn index_follows_crest_hover_lit_mid_dim() {
         assert_eq!(field_band_index(0.0), 0);
-        assert_eq!(field_band_index(4.0 / 19.0 - 1e-9), 0);
-        assert_eq!(field_band_index(4.0 / 19.0), 1);
+        assert_eq!(field_band_index(5.0 / 19.0 - 1e-9), 0);
+        assert_eq!(field_band_index(5.0 / 19.0), 1);
         assert_eq!(field_band_index(7.0 / 19.0), 2);
         assert_eq!(field_band_index(11.0 / 19.0), 3);
         assert_eq!(field_band_index(14.0 / 19.0), 4);
@@ -213,8 +189,8 @@ mod tests {
             .collect();
         by_row.sort_by_key(|(row, _)| std::cmp::Reverse(*row));
 
-        // 4-3-4-3-5 on 13 rows is 3-2-3-2-3.
-        let expected = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4];
+        // 5-2-4-3-5 on 13 rows is 4-1-3-2-3.
+        let expected = [0, 0, 0, 0, 1, 2, 2, 2, 3, 3, 4, 4, 4];
         assert_eq!(by_row.len(), 13);
         for (i, (row, color)) in by_row.iter().enumerate() {
             assert_eq!(*row, 13 - i as i64);
@@ -255,7 +231,7 @@ mod tests {
             .collect();
         by_row.sort_by_key(|(row, _)| std::cmp::Reverse(*row));
 
-        let expected = [0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 4];
+        let expected = [0, 0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 4];
         assert_eq!(by_row.len(), 19);
         for (i, (row, idx)) in by_row.iter().enumerate() {
             assert_eq!(*row, 19 - i as i64);
@@ -265,8 +241,9 @@ mod tests {
 
     #[test]
     fn discrete_rows_never_drop_a_band() {
-        assert_eq!(field_band_counts(19), vec![4, 3, 4, 3, 5]);
-        assert_eq!(field_band_counts(13), vec![3, 2, 3, 2, 3]);
+        assert_eq!(field_band_counts(19), vec![5, 2, 4, 3, 5]);
+        assert_eq!(field_band_counts(13), vec![4, 1, 3, 2, 3]);
+        assert_eq!(field_band_counts(10), vec![3, 1, 2, 1, 3]);
         assert_eq!(field_band_counts(8), vec![2, 1, 2, 1, 2]);
         for n in 5..=40 {
             let counts = field_band_counts(n);
@@ -286,22 +263,55 @@ mod tests {
     }
 
     #[test]
-    fn ten_line_word_shows_all_five_stripes() {
+    fn ten_rows_scale_five_two_four_three_five() {
         use crate::engine::terminal::{Terminal, TerminalConfig};
         use crate::utils::palette::Palette;
 
-        let mut lines = vec!["  ▄  ".to_string(), "▄███▄".to_string()];
-        for _ in 0..6 {
+        let input = ["X"; 10].join("\n");
+        let mut terminal = Terminal::new(
+            &input,
+            TerminalConfig {
+                canvas_width: 1,
+                canvas_height: 10,
+                ignore_terminal_dimensions: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let palette = Palette::from_hex_list("111111,222222,333333,444444,555555").unwrap();
+        apply_field_bands(&mut terminal, &palette);
+
+        let mut by_row: Vec<(i64, usize)> = terminal
+            .input_characters
+            .iter()
+            .map(|&id| {
+                let ch = &terminal.arena[id.0 as usize];
+                (ch.input_coord.row, band_of(ch, &palette))
+            })
+            .collect();
+        by_row.sort_by_key(|(row, _)| std::cmp::Reverse(*row));
+        let bands: Vec<usize> = by_row.into_iter().map(|(_, b)| b).collect();
+        // 5-2-4-3-5 on 10 rows is 3-1-2-1-3.
+        assert_eq!(bands, vec![0, 0, 0, 1, 2, 2, 3, 4, 4, 4]);
+    }
+
+    #[test]
+    fn nineteen_row_wordmark_keeps_sparse_peak_in_crest() {
+        use crate::engine::terminal::{Terminal, TerminalConfig};
+        use crate::utils::palette::Palette;
+
+        let mut lines = vec!["  █  ".to_string()];
+        for _ in 0..16 {
             lines.push("█████".to_string());
         }
-        lines.push("▀███▀".to_string());
+        lines.push("  █  ".to_string());
         lines.push("  █  ".to_string());
         let input = lines.join("\n");
         let mut terminal = Terminal::new(
             &input,
             TerminalConfig {
                 canvas_width: 5,
-                canvas_height: 10,
+                canvas_height: 19,
                 ignore_terminal_dimensions: true,
                 ..Default::default()
             },
@@ -323,8 +333,9 @@ mod tests {
             .collect();
         by_row.sort_by_key(|(row, _)| std::cmp::Reverse(*row));
         let bands: Vec<usize> = by_row.into_iter().map(|(_, b)| b).collect();
-        // Sparse peak (row 0) and tail stay crest/dim; 4-3-4-3-5 is 2-1-2-1-2
-        // on the 8 body rows, so the first two full letter rows are crest.
-        assert_eq!(bands, vec![0, 0, 0, 1, 2, 2, 3, 4, 4, 4]);
+        assert_eq!(
+            bands,
+            vec![0, 0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 4]
+        );
     }
 }
