@@ -14,10 +14,15 @@ done
 
 cd "$ROOT"
 
-cargo test --release
+# The rustc test harness is unwind-only. [profile.release] sets panic=abort
+# for the shipped binary; inheriting that here compiles clap/anstyle (and
+# this crate's cdylib) as abort, which macOS then refuses to link into the
+# unwind test bins. Scope the override to these two invocations so bin/build
+# still ships abort.
+cargo test --release --config 'profile.release.panic="unwind"'
 # Rebuilds the lib with one effect; does not replace the full binary
 # that bin/build produces for the CLI corpus below.
-cargo test --release --no-default-features --features decrypt --lib
+cargo test --release --no-default-features --features decrypt --lib --config 'profile.release.panic="unwind"'
 "$ROOT/bin/build"
 ./tools/tests/cli_corpus.sh
 python3 tools/tests/sigterm_behavior.py
